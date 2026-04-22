@@ -12,6 +12,8 @@
 #include <termios.h>
 #else
 #include <windows.h>
+#define COMM_ERROR  2
+#define COMM_OPEN_ERROR 1
 #endif
 
 int setCPUtype(char* cpu);
@@ -147,7 +149,7 @@ void initSerialPort()
     if(port_handle==INVALID_HANDLE_VALUE)
         {
         printf("unable to open port %s -> %s\n",COM, portname);
-        exit(0);
+        exit(COMM_OPEN_ERROR);
         }
     strcpy (mode,"baud=57600 data=8 parity=n stop=1");
     memset(&port_sets, 0, sizeof(port_sets));  /* clear the new struct  */
@@ -157,19 +159,19 @@ void initSerialPort()
         {
         printf("dcb settings failed\n");
         CloseHandle(port_handle);
-        exit(0);
+        exit(COMM_OPEN_ERROR);
         }
 
     if(!SetCommState(port_handle, &port_sets))
         {
         printf("cfg settings failed\n");
         CloseHandle(port_handle);
-        exit(0);
+        exit(COMM_OPEN_ERROR);
         }
 
-    timeout_sets.ReadIntervalTimeout         = 1;
+    timeout_sets.ReadIntervalTimeout         = 100;     // 1us is too small window for getByte of 1 byte most of the time
     timeout_sets.ReadTotalTimeoutMultiplier  = 1000;
-    timeout_sets.ReadTotalTimeoutConstant    = 1;
+    timeout_sets.ReadTotalTimeoutConstant    = 1000;
     timeout_sets.WriteTotalTimeoutMultiplier = 1000;
     timeout_sets.WriteTotalTimeoutConstant   = 1;
 
@@ -177,7 +179,7 @@ void initSerialPort()
         {
         printf("timeout settings failed\n");
         CloseHandle(port_handle);
-        exit(0);
+        exit(COMM_OPEN_ERROR);
         }
 
 
@@ -234,7 +236,8 @@ void comErr(char *fmt, ...)
     fprintf(stderr,"%s", buf);
     perror(COM);
     va_end(va);
-    abort();
+    exit(COMM_ERROR);                       // abort() crashes application
+											// better to exit with error code
     }
 
 void flsprintf(FILE* f, char *fmt, ...)
