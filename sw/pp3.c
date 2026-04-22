@@ -12,6 +12,8 @@
 #include <termios.h>
 #else
 #include <windows.h>
+#define COMM_OPEN_ERROR 1
+#define COMM_READ_ERROR 2
 #endif
 
 int setCPUtype(char* cpu);
@@ -21,7 +23,7 @@ void comErr(char *fmt, ...);
 void flsprintf(FILE* f, char *fmt, ...);
 
 char * COM = "";
-char * PP_VERSION = "0.99";
+char * PP3_VERSION = "0.99";
 
 #define	PROGMEM_LEN	260000
 #define	CONFIG_LEN	32
@@ -92,128 +94,130 @@ void initSerialPort()
 
 
 void putByte(int byte)
-    {
-    char buf = byte;
-    if (verbose>3) flsprintf(stdout,"TX: 0x%02X\n", byte);
-    int n = write(com, &buf, 1);
-    if (n != 1) comErr("Serial port failed to send a byte, write returned %d\n", n);
-    }
+{
+  char buf = byte;
+  if (verbose>3) flsprintf(stdout,"TX: 0x%02X\n", byte);
+  int n = write(com, &buf, 1);
+  if (n != 1) comErr("Serial port failed to send a byte, write returned %d\n", n);
+}
 
 
 void putBytes (unsigned char * data, int len)
-    {
-
-    int i;
-    for (i=0; i<len; i++)
-        putByte(data[i]);
-    /*
-    	if (verbose>3)
-    		flsprintf(stdout,"TXP: %d B\n", len);
+{
+  
+  int i;
+  for (i=0; i<len; i++)
+    putByte(data[i]);
+  /*
+    if (verbose>3)
+    flsprintf(stdout,"TXP: %d B\n", len);
     int n = write(com, data, len);
-    	if (n != len)
-    		comErr("Serial port failed to send %d bytes, write returned %d\n", len,n);
-    */
-    }
+    if (n != len)
+    comErr("Serial port failed to send %d bytes, write returned %d\n", len,n);
+  */
+}
 
 int getByte()
-    {
-    char buf;
-    int n = read(com, &buf, 1);
-    if (verbose>3) flsprintf(stdout,n<1?"RX: fail\n":"RX:  0x%02X\n", buf & 0xFF);
-    if (n == 1) return buf & 0xFF;
-
-    comErr("Serial port failed to receive a byte, read returned %d\n", n);
-    return -1; // never reached
-    }
+{
+  char buf;
+  int n = read(com, &buf, 1);
+  if (verbose>3) flsprintf(stdout,n<1?"RX: fail\n":"RX:  0x%02X\n", buf & 0xFF);
+  if (n == 1) return buf & 0xFF;
+  
+  comErr("Serial port failed to receive a byte, read returned %d\n", n);
+  return -1; // never reached
+}
 #else
 
 HANDLE port_handle;
 
 void initSerialPort()
+{
+
+  char mode[40],portname[20];
+  COMMTIMEOUTS timeout_sets;
+  DCB port_sets;
+  strcpy(portname,"\\\\.\\");
+  strcat(portname,COM);
+  port_handle = CreateFileA(portname,
+			    GENERIC_READ|GENERIC_WRITE,
+			    0,                          /* no share  */
+			    NULL,                       /* no security */
+			    OPEN_EXISTING,
+			    0,                          /* no threads */
+			    NULL);                      /* no templates */
+  if(port_handle==INVALID_HANDLE_VALUE)
     {
-
-    char mode[40],portname[20];
-    COMMTIMEOUTS timeout_sets;
-    DCB port_sets;
-    strcpy(portname,"\\\\.\\");
-    strcat(portname,COM);
-    port_handle = CreateFileA(portname,
-                              GENERIC_READ|GENERIC_WRITE,
-                              0,                          /* no share  */
-                              NULL,                       /* no security */
-                              OPEN_EXISTING,
-                              0,                          /* no threads */
-                              NULL);                      /* no templates */
-    if(port_handle==INVALID_HANDLE_VALUE)
-        {
-        printf("unable to open port %s -> %s\n",COM, portname);
-        exit(0);
-        }
-    strcpy (mode,"baud=57600 data=8 parity=n stop=1");
-    memset(&port_sets, 0, sizeof(port_sets));  /* clear the new struct  */
-    port_sets.DCBlength = sizeof(port_sets);
-
-    if(!BuildCommDCBA(mode, &port_sets))
-        {
-        printf("dcb settings failed\n");
-        CloseHandle(port_handle);
-        exit(0);
-        }
-
-    if(!SetCommState(port_handle, &port_sets))
-        {
-        printf("cfg settings failed\n");
-        CloseHandle(port_handle);
-        exit(0);
-        }
-
-    timeout_sets.ReadIntervalTimeout         = 1;
-    timeout_sets.ReadTotalTimeoutMultiplier  = 1000;
-    timeout_sets.ReadTotalTimeoutConstant    = 1;
-    timeout_sets.WriteTotalTimeoutMultiplier = 1000;
-    timeout_sets.WriteTotalTimeoutConstant   = 1;
-
-    if(!SetCommTimeouts(port_handle, &timeout_sets))
-        {
-        printf("timeout settings failed\n");
-        CloseHandle(port_handle);
-        exit(0);
-        }
-
-
+      printf("unable to open port %s -> %s\n",COM, portname);
+      exit(COMM_OPEN_ERROR);
     }
+  strcpy (mode,"baud=57600 data=8 parity=n stop=1");
+  memset(&port_sets, 0, sizeof(port_sets));  /* clear the new struct  */
+  port_sets.DCBlength = sizeof(port_sets);
+  
+  if(!BuildCommDCBA(mode, &port_sets))
+    {
+      printf("dcb settings failed\n");
+      CloseHandle(port_handle);
+      exit(COMM_OPEN_ERROR);
+    }
+  
+  if(!SetCommState(port_handle, &port_sets))
+    {
+      printf("cfg settings failed\n");
+      CloseHandle(port_handle);
+      exit(COMM_OPEN_ERROR);
+    }
+
+  timeout_sets.ReadIntervalTimeout         = 100;
+  timeout_sets.ReadTotalTimeoutMultiplier  = 1000;
+  timeout_sets.ReadTotalTimeoutConstant    = 1000;
+  timeout_sets.WriteTotalTimeoutMultiplier = 1000;
+  timeout_sets.WriteTotalTimeoutConstant   = 1;
+  
+  if(!SetCommTimeouts(port_handle, &timeout_sets))
+    {
+      printf("timeout settings failed\n");
+      CloseHandle(port_handle);
+      exit(COMM_OPEN_ERROR);
+    }
+  
+  
+}
 void putByte(int byte)
-    {
-    int n;
-    if (verbose>3) flsprintf(stdout,"TX: 0x%02X\n", byte);
-    WriteFile(port_handle, &byte, 1, (LPDWORD)((void *)&n), NULL);
-    if (n != 1) comErr("Serial port failed to send a byte, write returned %d\n", n);
-    }
+{
+  int n;
+  if (verbose>3) flsprintf(stdout,"TX: 0x%02X\n", byte);
+  WriteFile(port_handle, &byte, 1, (LPDWORD)((void *)&n), NULL);
+  if (n != 1) comErr("Serial port failed to send a byte, write returned %d\n", n);
+}
 
 void putBytes (unsigned char * data, int len)
-    {
-    /*
+{
+  /*
     int i;
     for (i=0;i<len;i++)
-    	putByte(data[i]);
-    */
-    int n;
-    WriteFile(port_handle, data, len, (LPDWORD)((void *)&n), NULL);
-    if (n != len) comErr("Serial port failed to send a byte, write returned %d\n", n);
-    }
+    putByte(data[i]);
+  */
+  int n;
+  WriteFile(port_handle, data, len, (LPDWORD)((void *)&n), NULL);
+  if (n != len) comErr("Serial port failed to send a byte, write returned %d\n", n);
+}
 
 
 
 int getByte()
-    {
-    unsigned char buf[2];
-    int n;
-    ReadFile(port_handle, buf, 1, (LPDWORD)((void *)&n), NULL);
-    if (verbose>3) flsprintf(stdout,n<1?"RX: fail\n":"RX:  0x%02X\n", buf[0] & 0xFF);
-    if (n == 1) return buf[0] & 0xFF;
-    comErr("Serial port failed to receive a byte, read returned %d\n", n);
-    return -1; // never reached
-    }
+{
+  unsigned char buf[2] = "\0\0";
+  int n;
+  ReadFile(port_handle, buf, 1, (LPDWORD)((void *)&n), NULL);
+  if (verbose>3)
+    flsprintf(stdout,n<1?"RX: fail\n":"RX:  0x%02X\n", buf[0] & 0xFF);
+  if (n == 1)
+    return buf[0] & 0xFF;
+  comErr("Serial port failed to receive a byte, read returned %d\n", n);
+  return -1; // never reached
+}
 #endif
 
 
@@ -234,7 +238,7 @@ void comErr(char *fmt, ...)
     fprintf(stderr,"%s", buf);
     perror(COM);
     va_end(va);
-    abort();
+    exit(COMM_READ_ERROR);
     }
 
 void flsprintf(FILE* f, char *fmt, ...)
@@ -1008,7 +1012,7 @@ int main(int argc, char *argv[])
     unsigned char * pm_point, * cm_point;
     unsigned char tdat[200];
     parseArgs(argc,argv);
-    if (verbose>0) printf ("PP programmer, version %s\n",PP_VERSION);
+    if (verbose>0) printf ("PP programmer, version %s\n",PP3_VERSION);
     if (verbose>1) printf ("Opening serial port\n");
     initSerialPort();
     if (sleep_time>0)
@@ -1168,7 +1172,7 @@ int main(int argc, char *argv[])
             }
         }
     else
-        {
+      {
         if (program==1)
             {
             if ((chip_family==CF_P16F_A)|(chip_family==CF_P16F_B)|(chip_family==CF_P16F_D)) p16a_mass_erase();
@@ -1218,38 +1222,38 @@ int main(int argc, char *argv[])
             if (verbose>0) printf ("\n");
             if (verbose>0) printf ("Verifying config\n");
 			if ((chip_family==CF_P16F_A)|(chip_family==CF_P16F_B)|(chip_family==CF_P16F_D))
-				{
+			  {
 				config = p16a_get_config(7);
 				econfig = (((unsigned int)(file_image[2*0x8007]))<<0) + (((unsigned int)(file_image[2*0x8007+1]))<<8);
 				if (config==econfig)
-					{
-					if (verbose>1) printf ("config 1 OK: %4.4X\n",config);
-					}
+				  {
+				    if (verbose>1) printf ("config 1 OK: %4.4X\n",config);
+				  }
 				else	printf ("config 1 error: E:0x%4.4X R:0x%4.4X\n",config,econfig);
 				config = p16a_get_config(8);
 				econfig = (((unsigned int)(file_image[2*0x8008]))<<0) + (((unsigned int)(file_image[2*0x8008+1]))<<8);
 				if (config==econfig)
-					{
-					if (verbose>1) printf ("config 2 OK: %4.4X\n",config);
-					}
+				  {
+				    if (verbose>1) printf ("config 2 OK: %4.4X\n",config);
+				  }
 				else	printf ("config 2 error: E:0x%4.4X R:0x%4.4X\n",config,econfig);
-				}
+			  }
 			if (chip_family==CF_P16F_C)
-				{
-				p16c_read_page(tdat,0x8007*2,page_size);
-                for (j=0; j<10; j++)
-                    {
-                    if (config_bytes[j] != tdat[j])
-                        {
-                        printf ("Error at 0x%4.4X E:0x%2.2X R:0x%2.2X\n",i+j,config_bytes[j],tdat[j]);
-                        prog_exit_progmode();
-                        exit(0);
-                        }
-                    }
-
-				}
+			  {
+			    p16c_read_page(tdat,0x8007*2,page_size);
+			    for (j=0; j<10; j++)
+			      {
+				if (config_bytes[j] != tdat[j])
+				  {
+				    printf ("Error at 0x%4.4X E:0x%2.2X R:0x%2.2X\n",i+j,config_bytes[j],tdat[j]);
+				    prog_exit_progmode();
+				    exit(0);
+				  }
+			      }
+			    
+			  }
             }
-        }
+      }
     prog_exit_progmode();
     return 0;
     }
